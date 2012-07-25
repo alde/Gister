@@ -8,21 +8,15 @@ require "json"
 ##
 # The gister object.
 class Gister
-  attr_accessor :description, :visibility, :files, :options
+  attr_accessor :files, :options, :token, :username
 
   def initialize args
     @files = Hash.new
     @options, filenames = parse_options args
 
-    ##
-    # Add each file to the gister object
-    filenames.each {|file|  add_file file }
-  end
+    @username, @token = request_token() unless @options[:anonymous]
 
-  def add_file filename
-    @files[filename] = {
-      "content" => File.read(filename)
-    }
+    filenames.each {|file|  add_file file }
   end
 
   def to_json *a
@@ -35,14 +29,26 @@ class Gister
   end
 
   def push
-    response = RestClient.post("https://api.github.com/gists", JSON.generate(self), :content_type => :json)
+    token = ""
+    if @token.nil? == false and @options[:anonymous] == false then
+      token = "?login=#{@username}&access_token=#{@token}"
+    end
+    response = RestClient.post("https://api.github.com/gists#{token}", JSON.generate(self), :content_type => :json)
     if @options[:verbose] then
       return JSON(response)
     end
-    return JSON(response)["html_url"]
+    return "url: " + JSON(response)["html_url"]
   end
 
   private
+  ##
+  # Add a file to the gister
+  def add_file filename
+    @files[filename] = {
+      "content" => File.read(filename)
+    }
+  end
+
   ##
   # Parse commandline options
   def parse_options args
@@ -50,46 +56,116 @@ class Gister
     # Commandline options.
     options = {}
     optparse = OptionParser.new do |opts|
-      opts.banner = "Usage: gister [option] file1 file2 ..."
+      opts.banner = "Usage: gister [options] file1 file2 ..."
+
+      ##
+      # Default values
+      options[:verbose] = false
+      options[:description] = ""
+      options[:visibility] = :private
+      options[:anonymous] = false
 
       ##
       # Output all of the response
-      options[:verbose] = false
       opts.on( "-v", "--verbose", "Output entire response") do
         options[:verbose] = true
       end
 
       ##
       # Add a description
-      options[:description] = ""
       opts.on( "-d", "--description DESC", "Add a description for the gist") do |desc|
         options[:description] = desc
       end
 
       ##
-      # Make the gist private or public
-      options[:visibility] = :public
-      opts.on( "-p", "--private", "Make the gist private") do
-        options[:visibility] = :private
+      # Make the gist public
+      opts.on( "-p", "--public", "Make the gist public") do
+        options[:visibility] = :public
       end
 
+      ##
+      # Make the gist anonymous
+      opts.on( "-a", "--anonymous" "Make an anonymous gist") do
+        options[:anonymous] = true
+      end
+
+      ##
       # Display help text.
       opts.on( "-h", "--help", "Display this screen" ) do
-        puts opts
-        exit
+        exit_with_help opts
       end
     end
 
-    optparse.parse!
-
-    ##
-    # If no files were supplied, print the help text and exit.
-    if args.count == 0
-      puts optparse
-      exit
+    begin
+      optparse.parse!
+      raise InvalidArgumentError if args.count == 0
+    rescue
+      exit_with_help optparse
     end
 
     return [options, ARGV]
+  end
+
+  def exit_with_help help
+    puts help
+    exit
+  end
+
+  def request_token
+    begin
+      return read_dotfile()
+    rescue
+      begin
+        require 'highline/import'
+        puts "No dotfile readable. Enter github username/password (or leave blank for anonymous)"
+        username = ask("Enter your username:  ") { |q| q.echo = true }
+        password = ask("Enter your password:  ") { |q| q.echo = "*" }
+        if username.empty? or password.empty? then
+          puts "Anonymous gist"
+          return nil
+        end
+        save_dotfile(get_token(username, password))
+        return request_token
+      rescue
+        return nil
+      end
+    end
+  end
+
+  def save_dotfile token
+    dotfile = File.open(File.expand_path("~/.gister"), "w")
+    dotfile.puts(token)
+    dotfile.write
+    dotfile.close
+  end
+
+  def read_dotfile
+    dotfile = File.open(File.expand_path("~/.gister"), "r")
+    file = dotfile.readline.split(":")
+    dotfile.close
+    expires = file[3]
+    hash = {
+      "scopes" => ["gist"],
+      "note" => "gister app"
+    }
+    return [file[0], file[1]]
+  end
+
+  def get_token username, password
+    hash = {
+      "scopes" => ["gist"],
+      "note" => "gister app"
+    }
+    begin
+      response = RestClient.post "https://#{username}:#{password}@api.github.com/authorizations", hash.to_json, :content_type => :json
+    rescue
+      puts "[ERROR] Authentication failed. Use -a for anonymous gist."
+      exit
+    end
+    json = JSON(response)
+    puts json.inspect
+    token = "#{username}:#{json['token']}:#{json['id']}"
+    return token
   end
 end
 
