@@ -29,15 +29,30 @@ class Gister
   end
 
   def push
+
     token = ""
+
     if @token.nil? == false and @options[:anonymous] == false then
       token = "?login=#{@username}&access_token=#{@token}"
     end
-    response = RestClient.post("https://api.github.com/gists#{token}", JSON.generate(self), :content_type => :json)
+
+    url = "https://api.github.com/gists#{token}"
+    payload = JSON.generate(self)
+
     if @options[:verbose] then
-      return JSON(response)
+      puts "gist url: #{url}"
+      puts "payload: #{payload}"
     end
-    return "url: " + JSON(response)["html_url"]
+
+    unless @options[:noop] then
+      response = RestClient.post(url, payload, :content_type => :json)
+      json_response = JSON(response)
+      if @options[:verbose] then
+        return json_response
+      end
+
+      return "url: " + json_response["html_url"]
+    end
   end
 
   private
@@ -64,6 +79,7 @@ class Gister
       options[:description] = ""
       options[:visibility] = :private
       options[:anonymous] = false
+      options[:noop] = false
 
       ##
       # Output all of the response
@@ -87,6 +103,12 @@ class Gister
       # Make the gist anonymous
       opts.on( "-a", "--anonymous" "Make an anonymous gist") do
         options[:anonymous] = true
+      end
+
+      ##
+      # Make no calls
+      opts.on( "-n", "--no-op" "Make no actual calls") do
+        options[:noop] = true
       end
 
       ##
@@ -157,7 +179,11 @@ class Gister
       "note" => "gister app"
     }
     begin
-      response = RestClient.post "https://#{username}:#{password}@api.github.com/authorizations", hash.to_json, :content_type => :json
+      url = "https://#{username}:#{password}@api.github.com/authorizations"
+      puts "token url: #{url}" if @options[:verbose]
+      unless @options[:noop] then
+        response = RestClient.post url, hash.to_json, :content_type => :json
+      end
     rescue
       puts "[ERROR] Authentication failed. Use -a for anonymous gist."
       exit
