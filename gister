@@ -101,13 +101,13 @@ class Gister
 
       ##
       # Make the gist anonymous
-      opts.on( "-a", "--anonymous" "Make an anonymous gist") do
+      opts.on( "-a", "--anonymous", "Make an anonymous gist") do
         options[:anonymous] = true
       end
 
       ##
       # Make no calls
-      opts.on( "-n", "--no-op" "Make no actual calls") do
+      opts.on( "-n", "--no-op", "Make no actual calls") do
         options[:noop] = true
       end
 
